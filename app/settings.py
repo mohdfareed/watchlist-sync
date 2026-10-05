@@ -60,6 +60,12 @@ class Settings(BaseSettings):
 
     scryer_url: AnyHttpUrl
     scryer_api_key: SecretStr = Field(min_length=1)
+    trakt_client_id: SecretStr | None = Field(default=None, min_length=1)
+
+    @field_validator("trakt_client_id", mode="before")
+    @classmethod
+    def _optional_trakt_client(cls, value: object) -> object:
+        return None if value == "" else value
 
     @field_validator("scryer_url")
     @classmethod

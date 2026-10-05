@@ -38,14 +38,19 @@
   unfinished changes in `/config/state.json`. Save atomically before writes
   and after confirmed outcomes, so uncertain writes remain recoverable.
   Failed source reads retain prior membership. No activity history or journal.
-- Plex supplies membership. Read Scryer's catalog on successful source polls
-  and write only needed changes; no separate Scryer event loop or event bus.
+- Plex and Trakt's native movie/show watchlists supply union membership.
+  Exclude custom lists, Backlog, and history. Read Scryer's catalog on
+  successful source polls and write only needed changes; no separate Scryer
+  event loop or event bus.
 - No continuous episode/season resets or list-priority machinery.
 - Delegate media operations to Scryer/Weaver. File deletion is manual in Plex;
   this tool never requests deletion or deletes files.
-- Keep source fetching separate from membership reconciliation. A future
-  Trakt source must reconcile union membership before emitting removals;
-  do not implement Trakt or a speculative source framework now.
+- Keep source fetching separate from membership reconciliation. Stage all
+  successful source snapshots before reconciling union membership and removals;
+  retain failed sources' prior membership. No speculative source framework.
+- Use `TRAKT_CLIENT_ID` from the existing 1Password Media Environment.
+  Pair once with the user and persist refreshable tokens privately in `/config`;
+  never log credentials or authorization codes.
 - Confirm behavioral departures first.
 
 ## Code and documentation

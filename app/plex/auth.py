@@ -28,7 +28,9 @@ class AuthenticationError(Exception):
     """An authentication failure with a message safe to log."""
 
 
-def authenticate(config_dir: Path, session: Session, stop: Event) -> MyPlexAccount:
+def authenticate(
+    config_dir: Path, session: Session, stop: Event, *, retry: bool = True
+) -> MyPlexAccount:
     """Authenticate with retry backoff, safe HTTP diagnostics, and cooperative shutdown."""
     # Observe only this authentication operation, including PlexAPI's pairing thread.
     diagnostics = _AuthDiagnostics()
@@ -42,6 +44,8 @@ def authenticate(config_dir: Path, session: Session, stop: Event) -> MyPlexAccou
             except (AuthenticationError, PlexApiException, RequestException) as error:
                 if stop.is_set():
                     break
+                if not retry:
+                    raise
                 detail = (
                     str(error) if isinstance(error, AuthenticationError) else type(error).__name__
                 )
@@ -68,7 +72,10 @@ def with_authentication[T](
 ) -> T:
     """Run the given function with an authenticated Plex account."""
     with Session() as session:
-        account = authenticate(settings.config_dir, session, stop)
+        # Let the shared polling loop retry failures when Trakt can still be read.
+        account = authenticate(
+            settings.config_dir, session, stop, retry=settings.trakt_client_id is None
+        )
         if stop.is_set():
             raise InterruptedError("Plex read cancelled")
 

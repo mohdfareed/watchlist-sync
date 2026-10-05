@@ -7,7 +7,7 @@ from pydantic import ValidationError
 from app.plex.auth import AuthenticationError
 from app.settings import load_settings
 from app.state import StateError, StateStore
-from app.sync import sync_plex
+from app.sync import sync_sources
 from app.worker import run
 
 _logger = logging.getLogger(__package__)
@@ -27,7 +27,7 @@ def main() -> int:
 
     try:  # Run the main worker.
         store = StateStore(settings.config_dir / "state.json")
-        run(lambda stop: sync_plex(settings, stop, store), settings)
+        run(lambda stop: sync_sources(settings, stop, store), settings)
 
     # Report actionable authentication/state failures without exposing credentials.
     except (AuthenticationError, StateError) as error:

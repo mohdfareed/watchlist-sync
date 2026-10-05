@@ -43,6 +43,7 @@ class StateStore:
     def __init__(self, path: Path) -> None:
         self._path = path
         self.startup = True
+        self._observed_sources: set[str] = set()
         self.state = SyncState()
 
         try:
@@ -67,9 +68,38 @@ class StateStore:
                 "Cannot load state.json; restore valid state before restarting."
             ) from None
 
-    def observe(self, snapshot: WatchlistSnapshot, grace: float, now: float) -> SyncState:
+    def observe(self, snapshots: list[WatchlistSnapshot], grace: float, now: float) -> SyncState:
         """Stage complete membership while retaining unfinished work and grace deadlines."""
         state = self.state.model_copy(deep=True)
+        for snapshot in snapshots:
+            self._observe(state, snapshot, grace, now)
+        return state
+
+    def save(self, state: SyncState, *, observed_sources: set[str] | None = None) -> None:
+        """Replace the private state file before advancing the in-memory checkpoint."""
+        if self.startup or state != self.state:
+            try:
+                self._path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+                temporary = self._path.with_suffix(".tmp")
+                temporary.touch(mode=0o600, exist_ok=True)
+                temporary.chmod(0o600)
+                temporary.write_text(state.model_dump_json(indent=2))
+                temporary.replace(self._path)
+            except OSError:
+                raise StateError(
+                    "Cannot save state.json; stop and restore writable storage."
+                ) from None
+        self.state = state.model_copy(deep=True)
+        self.startup = False
+        self._observed_sources.update(observed_sources or set())
+
+    # =========================================================================
+    # MARK: Snapshot staging
+    # =========================================================================
+
+    def _observe(
+        self, state: SyncState, snapshot: WatchlistSnapshot, grace: float, now: float
+    ) -> None:
         previous = state.watchlists.get(snapshot.source, {})
 
         # A reused source ID must not silently replace the old title with another identity.
@@ -94,27 +124,9 @@ class StateStore:
             if item_id not in snapshot.items:
                 del deadlines[item_id]
         for item_id in snapshot.items:
-            if self.startup or item_id not in previous:
+            if snapshot.source not in self._observed_sources or item_id not in previous:
                 deadlines.setdefault(item_id, now + grace)
         state.watchlists[snapshot.source] = snapshot.items
-        return state
-
-    def save(self, state: SyncState) -> None:
-        """Replace the private state file before advancing the in-memory checkpoint."""
-        if self.startup or state != self.state:
-            try:
-                self._path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-                temporary = self._path.with_suffix(".tmp")
-                temporary.touch(mode=0o600, exist_ok=True)
-                temporary.chmod(0o600)
-                temporary.write_text(state.model_dump_json(indent=2))
-                temporary.replace(self._path)
-            except OSError:
-                raise StateError(
-                    "Cannot save state.json; stop and restore writable storage."
-                ) from None
-        self.state = state.model_copy(deep=True)
-        self.startup = False
 
 
 # =============================================================================
