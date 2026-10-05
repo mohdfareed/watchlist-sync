@@ -15,7 +15,7 @@ from .models import ExternalId, MediaRequest, ScryerModel, Title
 def list_titles(client: ScryerClient, *, stop: Event) -> list[Title]:
     """Read every View-visible title, including unmonitored titles and all facets.
 
-    Nested collections, episodes, files and series-movie links are unpaginated.
+    Nested collections and episodes are unpaginated.
     Offset pages are not atomic; concurrent catalog edits can affect membership.
     """
     titles: list[Title] = []
@@ -132,15 +132,12 @@ query ManagedTitles($offset: Int!) {
     items {
       id libraryId name facet externalIds { source value }
       monitored monitorType metadataFetchedAt
-      mediaFiles { id episodeId seriesMovieLinkIds role scanStatus qualityLabel }
       collections {
         id collectionType collectionIndex monitored
         episodes {
           id seasonNumber episodeNumber monitored
-          mediaAvailability { state primaryQualityLabel }
         }
       }
-      seriesMovieLinks { id monitored metadataActive }
     }
   }
 }

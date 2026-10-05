@@ -62,23 +62,13 @@ class ExternalId(ScryerModel):
 # =============================================================================
 
 
-class EpisodeAvailability(ScryerModel):
-    """Scryer-reported episode availability and primary quality."""
-
-    state: Literal[
-        "AVAILABLE", "PENDING_SCAN", "SCAN_FAILED", "REVIEW_REQUIRED", "MISSING", "UNMONITORED"
-    ]
-    primary_quality_label: str | None
-
-
 class Episode(ScryerModel):
-    """An episode's numbering, monitoring state, and media availability."""
+    """An episode's numbering and monitoring state."""
 
     id: str
     season_number: str | None
     episode_number: str | None
     monitored: bool
-    media_availability: EpisodeAvailability
 
 
 class Collection(ScryerModel):
@@ -89,25 +79,6 @@ class Collection(ScryerModel):
     collection_index: str
     monitored: bool
     episodes: list[Episode]
-
-
-class MediaFile(ScryerModel):
-    """File evidence, not a derived playable/complete flag; paths are not queried."""
-
-    id: str
-    episode_id: str | None
-    series_movie_link_ids: list[str]
-    role: str
-    scan_status: str
-    quality_label: str | None
-
-
-class SeriesMovieLink(ScryerModel):
-    """A series-movie association's monitoring and metadata state."""
-
-    id: str
-    monitored: bool
-    metadata_active: bool
 
 
 class Title(ScryerModel):
@@ -121,9 +92,7 @@ class Title(ScryerModel):
     monitored: bool
     monitor_type: MonitorType | None
     metadata_fetched_at: str | None
-    media_files: list[MediaFile]
     collections: list[Collection]
-    series_movie_links: list[SeriesMovieLink]
 
     def identity(self) -> WatchlistItem:
         """Return validated provider aliases without conflating movie and series namespaces."""
