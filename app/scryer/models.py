@@ -9,6 +9,8 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, BeforeValidator, ConfigDict
 from pydantic.alias_generators import to_camel
 
+from app.watchlist import IdentityError, WatchlistItem
+
 # =============================================================================
 # MARK: Field types
 # =============================================================================
@@ -122,6 +124,22 @@ class Title(ScryerModel):
     media_files: list[MediaFile]
     collections: list[Collection]
     series_movie_links: list[SeriesMovieLink]
+
+    def identity(self) -> WatchlistItem:
+        """Return validated provider aliases without conflating movie and series namespaces."""
+        ids: dict[str, str] = {}
+        for entry in self.external_ids:
+            if entry.source in ids and ids[entry.source] != entry.value:
+                raise IdentityError(
+                    "Scryer title has conflicting external IDs; resolve them first."
+                )
+            ids[entry.source] = entry.value
+        return WatchlistItem(
+            id=self.id,
+            type="movie" if self.facet == "movie" else "show",
+            title=self.name,
+            external_ids=ids,
+        )
 
 
 # =============================================================================

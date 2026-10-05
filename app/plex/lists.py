@@ -7,7 +7,7 @@ from typing import Any
 from plexapi.myplex import MyPlexAccount
 from plexapi.video import Movie, Show
 
-from app.plex.models import PlexItem
+from app.watchlist import WatchlistItem
 
 _logger = logging.getLogger(__name__)
 
@@ -21,10 +21,10 @@ class PlexReadError(Exception):
     """A safe explanation for rejecting an incomplete or unsupported Plex read."""
 
 
-def read_watchlist(account: MyPlexAccount, stop: Event) -> dict[str, PlexItem]:
+def read_watchlist(account: MyPlexAccount, stop: Event) -> dict[str, WatchlistItem]:
     """Read a complete watchlist snapshot with stable identities and provider IDs."""
     # Build the cloud snapshot by stable GUID, not titles or list order.
-    watchlist: dict[str, PlexItem] = {}
+    watchlist: dict[str, WatchlistItem] = {}
     for item in _read_watchlist(account):
         if stop.is_set():
             raise InterruptedError("Plex watchlist read cancelled")
@@ -78,20 +78,23 @@ def _external_ids(item: Any) -> dict[str, str]:
     for guid in item.guids:
         source, _, value = guid.id.partition("://")
         if source in {"tmdb", "tvdb", "imdb"} and value:
+            if source in ids and ids[source] != value:
+                raise PlexReadError(
+                    "Plex item has conflicting provider IDs; keeping previous state."
+                )
             ids[source] = value
     return ids
 
 
-def _item(item: Any) -> PlexItem:
+def _item(item: Any) -> WatchlistItem:
     # Require a media identity before admitting the item into a snapshot.
     if not isinstance(item.guid, str) or not item.guid:
         raise PlexReadError("Plex item has no GUID; keeping the previous snapshot.")
 
-    return PlexItem(
+    return WatchlistItem(
         id=item.guid,
         type=item.type,
         title=item.title,
         year=item.year,
-        guid=item.guid,
         external_ids=_external_ids(item),
     )

@@ -1,1 +1,1 @@
-"""Plex authentication, list snapshots, and change detection."""
+"""Plex authentication and complete watchlist snapshots."""

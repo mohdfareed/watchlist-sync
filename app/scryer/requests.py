@@ -2,7 +2,7 @@
 
 import logging
 
-from app.plex.models import PlexItem
+from app.watchlist import WatchlistItem
 
 from .client import ScryerClient, ScryerError
 from .media import matches_identity
@@ -16,7 +16,14 @@ _logger = logging.getLogger(__name__)
 # =============================================================================
 
 
-def add_title(client: ScryerClient, item: PlexItem) -> str:
+class ApprovalResult(ScryerModel):
+    """Confirmed approval identity and whether its initial acquisition search needs retry."""
+
+    title_id: str
+    search_pending: bool
+
+
+def add_title(client: ScryerClient, item: WatchlistItem) -> str:
     """Resolve exact metadata and add a monitored title to the matching default library."""
     # Use Scryer's metadata classification, never a guess based on a Plex show name.
     metadata = client.query(
@@ -52,22 +59,29 @@ def add_title(client: ScryerClient, item: PlexItem) -> str:
         raise ScryerError("Set one default Scryer library for the matched media facet.")
     library = choices[0]
     policy = "MONITORED" if facet == "movie" else "ALL_EPISODES"
-    added = client.query(
-        _ADD_QUERY,
-        {
-            "input": {
-                "libraryId": library.id,
-                "facet": "SERIES" if facet == "tv" else facet.upper(),
-                "name": entry.name,
-                "monitored": True,
-                "tags": [],
-                "year": entry.year,
-                "externalIds": [identity.model_dump() for identity in entry.external_ids],
-                "options": {"monitorType": policy},
-            }
-        },
-        _AddResponse,
-    ).add_title
+    values: dict[str, object] = {
+        "libraryId": library.id,
+        "facet": "SERIES" if facet == "tv" else facet.upper(),
+        "name": entry.name,
+        "monitored": True,
+        "tags": [],
+        "year": entry.year,
+        "externalIds": [identity.model_dump() for identity in entry.external_ids],
+        "options": {"monitorType": policy},
+    }
+    ids = WatchlistItem(
+        id=item.id,
+        type=item.type,
+        title=entry.name,
+        external_ids={identity.source: identity.value for identity in entry.external_ids},
+    ).external_ids
+    if "tvdb" in ids:
+        values["tvdbId"] = ids["tvdb"]
+    if "tmdb" in ids:
+        values["tmdbId"] = int(ids["tmdb"])
+    if "imdb" in ids:
+        values["imdbId"] = ids["imdb"]
+    added = client.query(_ADD_QUERY, {"input": values}, _AddResponse).add_title
     _logger.info(
         "Scryer acquisition requested: %s title=%s library=%s hydration=%s reused=%s.",
         item.title,
@@ -80,7 +94,7 @@ def add_title(client: ScryerClient, item: PlexItem) -> str:
     return added.title.id
 
 
-def approve_request(client: ScryerClient, request: MediaRequest) -> str:
+def approve_request(client: ScryerClient, request: MediaRequest) -> ApprovalResult:
     """Approve a pending request while retaining its quality and monitoring preferences."""
     if not request.requested_quality_profile_id:
         raise ScryerError("Pending request has no quality profile; select one in Scryer.")
@@ -97,10 +111,20 @@ def approve_request(client: ScryerClient, request: MediaRequest) -> str:
     _logger.info("Scryer request approved: %s title=%s.", request.title, result.title_id)
     if result.search_error:
         _logger.warning(
-            "Scryer approved %s but could not queue its search; inspect Scryer Wanted.",
+            "Scryer approved %s but could not queue its search; retaining search for retry.",
             request.title,
         )
-    return result.title_id
+    return ApprovalResult(title_id=result.title_id, search_pending=bool(result.search_error))
+
+
+def retry_search(client: ScryerClient, title_id: str) -> None:
+    """Queue a title's missing Wanted scopes after an unsuccessful approval search."""
+    result = client.query(
+        _SEARCH_QUERY, {"input": {"titleId": title_id}}, _SearchResponse
+    ).trigger_acquisition_search
+    if result.state not in {"RUNNING", "COMPLETED"}:
+        raise ScryerError("Scryer did not accept acquisition search; retaining it for retry.")
+    _logger.info("Acquisition search accepted: title=%s job=%s.", title_id, result.id)
 
 
 # =============================================================================
@@ -163,6 +187,15 @@ class _ApproveResponse(ScryerModel):
     approve_media_request: _Approved
 
 
+class _SearchJob(ScryerModel):
+    id: str
+    state: str
+
+
+class _SearchResponse(ScryerModel):
+    trigger_acquisition_search: _SearchJob
+
+
 # =============================================================================
 # MARK: GraphQL operations
 # =============================================================================
@@ -182,4 +215,8 @@ _ADD_QUERY = """mutation AddWatchlistTitle($input: AddTitleInput!) {
 }"""
 _APPROVE_QUERY = """mutation ApproveWatchlist($input: ApproveMediaRequestInput!) {
   approveMediaRequest(input: $input) { titleId searchError }
+}"""
+
+_SEARCH_QUERY = """mutation RetryWatchlistSearch($input: TriggerAcquisitionSearchInput!) {
+  triggerAcquisitionSearch(input: $input) { id state }
 }"""

@@ -9,6 +9,10 @@ Movies and regular series episodes are monitored, including future episodes.
 Specials settings and selections are preserved. Existing `ADVANCED` series
 retain their custom policy and selections; only title monitoring is toggled.
 
+Watchlist membership controls the title-level monitored flag for adopted
+identities. Manual changes to that flag are corrected on later polls; completed
+episode/season selections are preserved until another watchlist addition.
+
 File deletion is manual through Plex. This tool never deletes media.
 
 ## Configuration
@@ -40,7 +44,21 @@ Optional:
 ```
 
 Authorize Plex using the link in the first-run logs. Keep the `/config` volume
-across container updates. File logs: `CONFIG_DIR/watchlist-sync.log`.
+across container updates: `state.json` retains adopted identities, grace
+deadlines and unfinished changes. Keep it to recover interrupted additions and
+removals safely. Ownership is retained after removal so a late-created title
+can still be unmonitored. Existing pending requests are left alone while absent;
+if approval later creates a title, its monitoring is corrected automatically.
+
+Polling provides eventual convergence, not an atomic add/remove transaction.
+An in-flight addition may briefly monitor an item removed from the watchlist;
+later successful polls correct it. Failed source reads preserve membership.
+
+When upgrading an older unversioned state file, saved grace deadlines are
+retained. Its snapshots cannot prove title ownership, so only current entries
+are adopted; older absent entries are left untouched.
+
+File logs: `CONFIG_DIR/watchlist-sync.log`.
 
 For background operation:
 

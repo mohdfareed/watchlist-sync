@@ -2,7 +2,7 @@
 
 from threading import Event
 
-from app.plex.models import PlexItem
+from app.watchlist import IdentityError, WatchlistItem, same_title
 
 from .client import ScryerClient, ScryerError
 from .models import ExternalId, MediaRequest, ScryerModel, Title
@@ -55,14 +55,22 @@ def get_version(client: ScryerClient) -> str:
     return client.query("query Version { scryerVersion }", {}, _VersionResponse).scryer_version
 
 
-def matches_identity(item: PlexItem, external_ids: list[ExternalId]) -> bool:
+def matches_identity(item: WatchlistItem, external_ids: list[ExternalId]) -> bool:
     """Require shared provider IDs to agree, rejecting conflicting identities."""
-    ids = {entry.source: entry.value for entry in external_ids}
+    ids: dict[str, str] = {}
+    for entry in external_ids:
+        if entry.source in ids and ids[entry.source] != entry.value:
+            raise IdentityError("Scryer returned conflicting provider IDs; resolve them first.")
+        ids[entry.source] = entry.value
     shared = item.external_ids.keys() & ids.keys()
-    return bool(shared) and all(item.external_ids[source] == ids[source] for source in shared)
+    if not any(item.external_ids[source] == ids[source] for source in shared):
+        return False
+    if any(item.external_ids[source] != ids[source] for source in shared):
+        raise IdentityError("Conflicting provider IDs; correct metadata before retrying.")
+    return True
 
 
-def matching_items[T: (Title, MediaRequest)](item: PlexItem, records: list[T]) -> list[T]:
+def matching_items[T: (Title, MediaRequest)](item: WatchlistItem, records: list[T]) -> list[T]:
     """Match within the movie or show namespace using exact provider identifiers."""
     if not item.external_ids:
         raise ScryerError("Plex item has no provider IDs; matching cannot safely proceed.")
@@ -72,6 +80,22 @@ def matching_items[T: (Title, MediaRequest)](item: PlexItem, records: list[T]) -
         if (record.facet == "movie") == (item.type == "movie")
         and matches_identity(item, record.external_ids)
     ]
+
+
+def find_title(item: WatchlistItem, title_id: str | None, titles: list[Title]) -> Title | None:
+    """Resolve unique exact aliases without following a rematched adopted title."""
+    matches = matching_items(item, titles)
+    if len(matches) > 1:
+        raise IdentityError("Multiple Scryer titles match; resolve duplicate identities first.")
+    target = next(iter(matches), None)
+    if target is not None:
+        same_title(item, target.identity())
+    # A disappeared title can later reappear or be replaced with the same exact identity.
+    # Refuse a recorded ID that still exists but now refers to different provider metadata.
+    if title_id is not None and any(title.id == title_id for title in titles):
+        if target is None or target.id != title_id:
+            raise IdentityError("Adopted Scryer title identity changed; review its provider IDs.")
+    return target
 
 
 # =============================================================================

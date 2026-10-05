@@ -25,20 +25,22 @@
   files.
 - Process existing contents on every startup, then poll for list changes.
   Also compare saved snapshots to detect net removals made while stopped.
-- A small Plex change detector compares snapshots and emits item-specific
-  events: watchlist additions/removals.
+- Watchlist union membership is authoritative for adopted titles' monitored
+  flags. Reconcile them on each successful poll; retain ownership after removal
+  so delayed/uncertain writes converge automatically to current membership.
+- Enable regular series scopes on an addition, not during routine title-flag
+  correction. Preserve manual episode choices after the addition completes.
 - Watchlist additions have a grace period, tracked by stable item ID. Removal
   during the grace period cancels the pending addition. Use
   `WATCHLIST_GRACE_SEC=60` by default, including startup contents. Preserve
   pending deadlines across restarts and check membership before releasing them.
-- Persist the last snapshots and pending watchlist addition deadlines together
-  in `/config/state.json`. Save atomically after successful event handling;
-  failures retain the previous baseline for retry. No activity history or
-  action journal.
-- Plex is the event source. Query and write to Scryer as needed to handle
-  events; do not build a Scryer snapshot/event loop or a generic event-bus
-  framework.
-- No continuous enforcement, blanket episode resets, or list-priority machinery.
+- Persist complete snapshots, grace deadlines, adopted identities and
+  unfinished changes in `/config/state.json`. Save atomically before writes
+  and after confirmed outcomes, so uncertain writes remain recoverable.
+  Failed source reads retain prior membership. No activity history or journal.
+- Plex supplies membership. Read Scryer's catalog on successful source polls
+  and write only needed changes; no separate Scryer event loop or event bus.
+- No continuous episode/season resets or list-priority machinery.
 - Delegate media operations to Scryer/Weaver. File deletion is manual in Plex;
   this tool never requests deletion or deletes files.
 - Keep source fetching separate from membership reconciliation. A future

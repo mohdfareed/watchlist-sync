@@ -14,17 +14,19 @@ _logger = logging.getLogger(__name__)
 # =============================================================================
 
 
-def unmonitor_title(client: ScryerClient, title: Title) -> None:
-    """Disable title acquisition while retaining files, downloads, and episode choices."""
-    if not title.monitored:
-        _logger.info("Already unmonitored: %s title=%s.", title.name, title.id)
+def set_title_monitoring(client: ScryerClient, title: Title, monitored: bool) -> None:
+    """Change only title monitoring, preserving policies, episode choices and downloads."""
+    if title.monitored == monitored:
         return
-    response = client.query(
-        _MONITOR_QUERY, {"input": {"titleId": title.id, "monitored": False}}, _MonitoringResponse
+    result = client.query(
+        _MONITOR_QUERY,
+        {"input": {"titleId": title.id, "monitored": monitored}},
+        _MonitoringResponse,
     ).result
-    if response.id != title.id or response.monitored:
-        raise ScryerError("Scryer did not confirm title unmonitoring.")
-    _logger.info("Unmonitored: %s title=%s; files and downloads retained.", title.name, title.id)
+    if result.id != title.id or result.monitored != monitored:
+        raise ScryerError("Scryer did not confirm title monitoring.")
+    title.monitored = monitored
+    _logger.info("Title monitoring: %s title=%s monitored=%s.", title.name, title.id, monitored)
 
 
 def monitor_title(client: ScryerClient, title: Title, stop: Event) -> None:
@@ -51,14 +53,7 @@ def monitor_title(client: ScryerClient, title: Title, stop: Event) -> None:
         if result.id != title.id or result.monitor_type != policy:
             raise ScryerError("Scryer did not confirm the requested monitoring policy.")
         _logger.info("Monitoring policy: %s -> %s.", title.name, policy)
-    if not title.monitored:
-        result = client.query(
-            _MONITOR_QUERY,
-            {"input": {"titleId": title.id, "monitored": True}},
-            _MonitoringResponse,
-        ).result
-        if result.id != title.id or not result.monitored:
-            raise ScryerError("Scryer did not confirm title monitoring.")
+    set_title_monitoring(client, title, True)
 
     if advanced:
         _logger.info("Monitored: %s title=%s; advanced selections retained.", title.name, title.id)
