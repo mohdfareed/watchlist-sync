@@ -73,7 +73,7 @@ def with_authentication[T](
             raise InterruptedError("Plex read cancelled")
 
         username: str = str(account.username or "<token>")  # pyright: ignore
-        _logger.info("Authenticated with Plex using account: %s", username)
+        _logger.debug("Authenticated with Plex using account: %s", username)
 
         return func(account)
 

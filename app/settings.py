@@ -58,12 +58,10 @@ class Settings(BaseSettings):
         default=60, ge=0, allow_inf_nan=False, validation_alias="WATCHLIST_GRACE_SEC"
     )
 
-    plex_server_url: AnyHttpUrl
-    plex_delete_list: str = Field(default="Remove from Library", min_length=1)
     scryer_url: AnyHttpUrl
     scryer_api_key: SecretStr = Field(min_length=1)
 
-    @field_validator("plex_server_url", "scryer_url")
+    @field_validator("scryer_url")
     @classmethod
     def _validate_service_url(cls, value: AnyHttpUrl) -> AnyHttpUrl:
         if value.username or value.password or value.query or value.fragment:

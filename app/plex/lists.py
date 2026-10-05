@@ -1,18 +1,13 @@
-"""Read complete Plex lists and the identities needed to match them to Scryer."""
+"""Read the complete Plex watchlist and the identities needed to match them to Scryer."""
 
 import logging
 from threading import Event
 from typing import Any
-from urllib.parse import urlsplit
-from xml.etree.ElementTree import ParseError, fromstring
 
 from plexapi.myplex import MyPlexAccount
-from plexapi.server import PlexServer
 from plexapi.video import Movie, Show
-from requests import Session
 
-from app.plex.models import PlexItem, PlexLists
-from app.settings import Settings
+from app.plex.models import PlexItem
 
 _logger = logging.getLogger(__name__)
 
@@ -26,15 +21,13 @@ class PlexReadError(Exception):
     """A safe explanation for rejecting an incomplete or unsupported Plex read."""
 
 
-def read_lists(
-    account: MyPlexAccount,
-    settings: Settings,
-    stop: Event,
-) -> PlexLists:
-    """Read complete watchlist and delete-list snapshots with matching metadata."""
+def read_watchlist(account: MyPlexAccount, stop: Event) -> dict[str, PlexItem]:
+    """Read a complete watchlist snapshot with stable identities and provider IDs."""
     # Build the cloud snapshot by stable GUID, not titles or list order.
     watchlist: dict[str, PlexItem] = {}
     for item in _read_watchlist(account):
+        if stop.is_set():
+            raise InterruptedError("Plex watchlist read cancelled")
         entry = _item(item)
 
         # Reject unsupported or repeated identities rather than silently losing entries.
@@ -45,80 +38,8 @@ def read_lists(
 
         watchlist[entry.id] = entry
 
-    # Find the configured delete list on the server and require a regular video playlist.
-    with Session() as session:
-        server: Any = _connect_server(account, str(settings.plex_server_url).rstrip("/"), session)
-        playlist = server.playlist(settings.plex_delete_list)
-        if playlist is None:
-            raise PlexReadError("The configured Plex delete list was not found.")
-        if playlist.playlistType != "video" or playlist.smart:
-            raise PlexReadError("The delete list must be a regular video playlist.")
-
-        # Read leaf items: Plex expands show and season selections into individual episodes.
-        items = playlist.items()
-        _check_complete(items, playlist.leafCount)
-
-        # Index local entries by server/rating key and reuse show metadata across episodes.
-        delete_list: dict[str, PlexItem] = {}
-        shows: dict[str, Any] = {}
-        for item in items:
-            if stop.is_set():
-                raise InterruptedError("Plex list read cancelled")
-
-            # Reject remote entries: their rating keys belong to a different server.
-            source = getattr(item, "sourceURI", None)
-            if source and urlsplit(source).netloc != server.machineIdentifier:  # pyright: ignore[reportUnknownMemberType]
-                raise PlexReadError(
-                    "Delete-list entries must belong to the configured Plex server."
-                )
-            entry = _item(item, f"{server.machineIdentifier}/{item.ratingKey}")
-
-            # Attach the parent show's identifiers and episode coordinates for Scryer matching.
-            if entry.type == "episode":
-                show_key = str(item.grandparentRatingKey)
-                if show_key not in shows:
-                    shows[show_key] = item.show()
-
-                show = shows[show_key]
-                entry.show_guid = show.guid
-                entry.show_title = show.title
-                entry.show_external_ids = _external_ids(show)
-                entry.season = item.parentIndex
-                entry.episode = item.index
-
-            delete_list[entry.id] = entry
-
-        # Read each represented show's local episodes to establish the deletion-scope totals.
-        for show in shows.values():
-            if stop.is_set():
-                raise InterruptedError("Plex membership read cancelled")
-
-            episodes = show.episodes()
-            _check_complete(episodes, show.leafCount)
-
-            # Group local episode IDs by season, without assuming external catalog completeness.
-            seasons: dict[int, set[str]] = {}
-            for episode in episodes:
-                seasons.setdefault(episode.parentIndex, set()).add(
-                    f"{server.machineIdentifier}/{episode.ratingKey}"
-                )
-
-            # Show how much of each season is selected, without promoting or deleting it yet.
-            for season, member_ids in seasons.items():
-                selected = len(member_ids & delete_list.keys())
-                if not selected:
-                    continue
-
-                _logger.info(
-                    "Delete-list scope: %s season=%s selected=%d/library=%d show_library=%d",
-                    show.title,
-                    season,
-                    selected,
-                    len(member_ids),
-                    len(episodes),
-                )
-
-    return PlexLists(watchlist=watchlist, delete_list=delete_list)
+    _logger.debug("Plex watchlist read complete: %d items.", len(watchlist))
+    return watchlist
 
 
 # =============================================================================
@@ -146,25 +67,6 @@ def _read_watchlist(account: MyPlexAccount) -> list[Movie | Show]:
     return items  # pyright: ignore[reportUnknownVariableType]
 
 
-def _connect_server(account: MyPlexAccount, url: str, session: Session) -> PlexServer:
-    # Ask the configured server for its identity before selecting an account resource.
-    with session.get(f"{url}/identity", timeout=(10, 30), allow_redirects=False) as response:
-        if response.status_code != 200:
-            raise PlexReadError(f"Plex identity lookup failed (HTTP {response.status_code}).")
-
-        try:  # Decode the machine identifier used to locate this server in the Plex account.
-            server_id = fromstring(response.content).get("machineIdentifier")
-        except ParseError:
-            raise PlexReadError("Plex server returned an invalid identity response.") from None
-
-    if not server_id:
-        raise PlexReadError("Plex server identity is missing its machine identifier.")
-
-    # Connect with the resource's server access token, not the account's cloud JWT.
-    resource: Any = account.resource(server_id)  # pyright: ignore[reportUnknownMemberType]
-    return PlexServer(url, token=resource.accessToken, session=session)
-
-
 # =============================================================================
 # MARK: Item identity
 # =============================================================================
@@ -180,14 +82,13 @@ def _external_ids(item: Any) -> dict[str, str]:
     return ids
 
 
-def _item(item: Any, item_id: str | None = None) -> PlexItem:
+def _item(item: Any) -> PlexItem:
     # Require a media identity before admitting the item into a snapshot.
     if not isinstance(item.guid, str) or not item.guid:
         raise PlexReadError("Plex item has no GUID; keeping the previous snapshot.")
 
-    # Copy the matching fields, using a server-local key for delete-list membership when supplied.
     return PlexItem(
-        id=item_id or item.guid,
+        id=item.guid,
         type=item.type,
         title=item.title,
         year=item.year,

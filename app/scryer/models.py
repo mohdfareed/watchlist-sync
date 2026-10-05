@@ -1,4 +1,4 @@
-"""Selected fields from the Scryer v0.19.12 schema, with snake_case names.
+"""Selected fields from the Scryer v0.21.12 schema, with snake_case names.
 
 Facet values are movie/tv/anime; other enum values retain Scryer's wire spelling.
 Nullable fields are required in responses: missing data must not look like absence.
@@ -63,7 +63,9 @@ class ExternalId(ScryerModel):
 class EpisodeAvailability(ScryerModel):
     """Scryer-reported episode availability and primary quality."""
 
-    state: Literal["AVAILABLE", "PENDING_SCAN", "SCAN_FAILED", "MISSING", "UNMONITORED"]
+    state: Literal[
+        "AVAILABLE", "PENDING_SCAN", "SCAN_FAILED", "REVIEW_REQUIRED", "MISSING", "UNMONITORED"
+    ]
     primary_quality_label: str | None
 
 
@@ -116,6 +118,7 @@ class Title(ScryerModel):
     external_ids: list[ExternalId]
     monitored: bool
     monitor_type: MonitorType | None
+    metadata_fetched_at: str | None
     media_files: list[MediaFile]
     collections: list[Collection]
     series_movie_links: list[SeriesMovieLink]
@@ -137,3 +140,4 @@ class MediaRequest(ScryerModel):
     status: RequestStatus
     created_title_id: str | None
     requested_monitor_type: MonitorType | None
+    requested_quality_profile_id: str | None

@@ -1,7 +1,7 @@
 [project]
 name = "watchlist-sync"
 version = "0.1.0"
-description = "Personal Plex watchlist requests and delete-list actions through Scryer."
+description = "Personal Plex watchlist requests and monitoring through Scryer."
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [

@@ -26,14 +26,13 @@ class SyncState(BaseModel):
 
     watchlist: dict[str, PlexItem] = Field(default_factory=dict)
     pending: dict[str, FiniteFloat] = Field(default_factory=dict)
-    delete_list: dict[str, PlexItem] = Field(default_factory=dict)
 
 
 @dataclass(frozen=True)
 class PlexEvent:
     """An item-specific change observed in a Plex list."""
 
-    kind: Literal["watchlist_added", "watchlist_removed", "delete_list_added"]
+    kind: Literal["watchlist_added", "watchlist_removed"]
     item: PlexItem
 
 
@@ -71,7 +70,6 @@ class ChangeDetector:
     def prepare(
         self,
         watchlist: dict[str, PlexItem],
-        delete_list: dict[str, PlexItem],
         grace_seconds: float,
         now: float,
     ) -> PreparedChanges:
@@ -82,6 +80,7 @@ class ChangeDetector:
         # Apply observed removals before considering any grace deadline.
         for item_id in self._state.watchlist.keys() - watchlist.keys():
             pending.pop(item_id, None)
+            # A startup replay can be pending even though the title is already monitored.
             events.append(PlexEvent("watchlist_removed", self._state.watchlist[item_id]))
 
         # Replay all current entries on startup; otherwise select only newly observed IDs.
@@ -105,18 +104,9 @@ class ChangeDetector:
             events.append(PlexEvent("watchlist_added", watchlist[item_id]))
             del pending[item_id]
 
-        # Delete-list additions have no grace period; replay current contents on startup too.
-        additions = (
-            delete_list.keys()
-            if self.startup
-            else delete_list.keys() - self._state.delete_list.keys()
-        )
-
-        events.extend(PlexEvent("delete_list_added", delete_list[item_id]) for item_id in additions)
-
         # Stage the next baseline without consuming events; the caller commits after success.
         return PreparedChanges(
-            state=SyncState(watchlist=watchlist, delete_list=delete_list, pending=pending),
+            state=SyncState(watchlist=watchlist, pending=pending),
             events=events,
         )
 

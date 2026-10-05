@@ -1,8 +1,4 @@
-"""Read-only Scryer access using an explicit endpoint and API key.
-
-Use ScryerClient as a context manager, then call get_version, list_titles and
-list_media_requests. Queries target Scryer v0.19.12; no live version is assumed.
-"""
+"""Scryer catalog queries and authenticated GraphQL access."""
 
 from .client import ScryerClient as ScryerClient
 from .client import ScryerError as ScryerError

@@ -4,20 +4,28 @@ Plex-driven media management through Scryer:
 
 - Add to watchlist → request and monitor the movie/show.
 - Remove from watchlist → unmonitor, keeping downloaded files.
-- Add to delete list → unmonitor and request deletion of the selected scope.
+
+Movies and regular series episodes are monitored, including future episodes.
+Specials settings and selections are preserved. Existing `ADVANCED` series
+retain their custom policy and selections; only title monitoring is toggled.
+
+File deletion is manual through Plex. This tool never deletes media.
 
 ## Configuration
 
 Required environment variables:
 
-- `PLEX_SERVER_URL`: Plex server base URL.
-
 - `SCRYER_URL`: Scryer base URL, without `/graphql`.
-- `SCRYER_API_KEY`: API key with `View` and `ManageTitles` access.
+- `SCRYER_API_KEY`: API key whose owner has `View` and
+  `ManageTitles` access to the target libraries. Create it under
+  **Profile → API keys**.
+
+The tool uses Scryer’s default library for the matched movie, series, or anime
+facet and preserves its quality-profile defaults. New titles are added through
+Scryer’s title-management API, which starts acquisition directly.
 
 Optional:
 
-- `PLEX_DELETE_LIST`: video playlist name; default `Remove from Library`.
 - `CONFIG_DIR`: authentication, state, and logs; default `/config`.
   Set a writable directory for local runs.
 - `LOG_LEVEL`: console verbosity; default `INFO`.

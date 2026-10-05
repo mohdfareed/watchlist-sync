@@ -16,15 +16,17 @@
 
 ## Behavior
 
-- Watchlist addition → request and monitor the entire exposed movie/show in
-  Scryer.
+- Watchlist addition → adopt an exact-ID existing title or request a new title
+  in Scryer. Monitor movies and current/future regular series episodes.
+- Preserve specials settings and existing special selections. Existing
+  `ADVANCED` series retain their policy and custom selections; only toggle
+  title monitoring for these titles.
 - Watchlist removal → unmonitor; do not explicitly cancel downloads or delete
   files.
-- Delete-list addition → unmonitor the scope and request deletion.
 - Process existing contents on every startup, then poll for list changes.
   Also compare saved snapshots to detect net removals made while stopped.
 - A small Plex change detector compares snapshots and emits item-specific
-  events: watchlist additions/removals and delete-list additions.
+  events: watchlist additions/removals.
 - Watchlist additions have a grace period, tracked by stable item ID. Removal
   during the grace period cancels the pending addition. Use
   `WATCHLIST_GRACE_SEC=60` by default, including startup contents. Preserve
@@ -37,10 +39,12 @@
   events; do not build a Scryer snapshot/event loop or a generic event-bus
   framework.
 - No continuous enforcement, blanket episode resets, or list-priority machinery.
-- Complete delete-list selections may become season/show operations based on
-  current Plex membership.
-- Delegate media operations to Scryer/Weaver. Never delete files directly.
-- Future services are not requirements. Confirm behavioral departures first.
+- Delegate media operations to Scryer/Weaver. File deletion is manual in Plex;
+  this tool never requests deletion or deletes files.
+- Keep source fetching separate from membership reconciliation. A future
+  Trakt source must reconcile union membership before emitting removals;
+  do not implement Trakt or a speculative source framework now.
+- Confirm behavioral departures first.
 
 ## Code and documentation
 

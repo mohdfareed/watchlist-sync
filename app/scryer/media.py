@@ -2,8 +2,10 @@
 
 from threading import Event
 
+from app.plex.models import PlexItem
+
 from .client import ScryerClient, ScryerError
-from .models import MediaRequest, ScryerModel, Title
+from .models import ExternalId, MediaRequest, ScryerModel, Title
 
 # =============================================================================
 # MARK: Public API
@@ -42,7 +44,7 @@ def list_titles(client: ScryerClient, *, stop: Event) -> list[Title]:
 def list_media_requests(client: ScryerClient) -> list[MediaRequest]:
     """Read all statuses in ManageTitles-visible libraries, not just owned requests.
 
-    Scryer v0.19.12 returns the complete list and exposes no pagination arguments.
+    Scryer v0.21.12 returns the complete list and exposes no pagination arguments.
     Lack of ManageTitles permission can produce an empty list rather than an error.
     """
     return client.query(_REQUESTS_QUERY, {}, _RequestsResponse).media_requests
@@ -51,6 +53,25 @@ def list_media_requests(client: ScryerClient) -> list[MediaRequest]:
 def get_version(client: ScryerClient) -> str:
     """Read the running version for diagnostics, without probing or changing settings."""
     return client.query("query Version { scryerVersion }", {}, _VersionResponse).scryer_version
+
+
+def matches_identity(item: PlexItem, external_ids: list[ExternalId]) -> bool:
+    """Require shared provider IDs to agree, rejecting conflicting identities."""
+    ids = {entry.source: entry.value for entry in external_ids}
+    shared = item.external_ids.keys() & ids.keys()
+    return bool(shared) and all(item.external_ids[source] == ids[source] for source in shared)
+
+
+def matching_items[T: (Title, MediaRequest)](item: PlexItem, records: list[T]) -> list[T]:
+    """Match within the movie or show namespace using exact provider identifiers."""
+    if not item.external_ids:
+        raise ScryerError("Plex item has no provider IDs; matching cannot safely proceed.")
+    return [
+        record
+        for record in records
+        if (record.facet == "movie") == (item.type == "movie")
+        and matches_identity(item, record.external_ids)
+    ]
 
 
 # =============================================================================
@@ -79,14 +100,14 @@ class _VersionResponse(ScryerModel):
 # MARK: Queries
 # =============================================================================
 
-# Verified against api/graphql/schema.graphql at the scryer-v0.19.12 tag.
+# Verified against api/graphql/schema.graphql at the scryer-v0.21.12 tag.
 _TITLES_QUERY = """
 query ManagedTitles($offset: Int!) {
   titles(limit: 100, offset: $offset, sort: {key: ADDED, direction: ASC}) {
     hasMore
     items {
       id libraryId name facet externalIds { source value }
-      monitored monitorType
+      monitored monitorType metadataFetchedAt
       mediaFiles { id episodeId seriesMovieLinkIds role scanStatus qualityLabel }
       collections {
         id collectionType collectionIndex monitored
@@ -104,7 +125,7 @@ _REQUESTS_QUERY = """
 query MediaRequests {
   mediaRequests {
     id libraryId title facet externalIds { source value }
-    status createdTitleId requestedMonitorType
+    status createdTitleId requestedMonitorType requestedQualityProfileId
   }
 }
 """

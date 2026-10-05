@@ -1,4 +1,4 @@
-"""Business logic for each Plex synchronization attempt."""
+"""Handle Plex watchlist changes through Scryer, then save the successful baseline."""
 
 import logging
 from threading import Event
@@ -8,10 +8,13 @@ from plexapi.exceptions import PlexApiException
 from requests import RequestException
 
 from app.plex.auth import with_authentication
-from app.plex.events import ChangeDetector
-from app.plex.lists import PlexReadError, read_lists
+from app.plex.events import ChangeDetector, PlexEvent
+from app.plex.lists import PlexReadError, read_watchlist
 from app.plex.models import PlexItem
-from app.scryer import ScryerClient, ScryerError, get_version, list_media_requests, list_titles
+from app.scryer import ScryerClient, ScryerError, get_version
+from app.scryer.media import list_media_requests, list_titles, matching_items
+from app.scryer.monitoring import monitor_title, unmonitor_title
+from app.scryer.requests import add_title, approve_request
 from app.settings import Settings
 
 _logger = logging.getLogger(__name__)
@@ -23,178 +26,114 @@ _logger = logging.getLogger(__name__)
 
 
 def sync_plex(settings: Settings, stop: Event, changes: ChangeDetector) -> None:
-    """Read Plex, prepare events, and inspect Scryer without changing either service."""
+    """Read complete membership and advance state only after successful Scryer actions."""
     try:
-        lists = with_authentication(
-            settings, lambda account: read_lists(account, settings, stop), stop
+        watchlist = with_authentication(
+            settings, lambda account: read_watchlist(account, stop), stop
         )
     except PlexReadError as error:
         _logger.error("%s", error)
         return
-
-    # Handle Plex API and network errors.
     except (PlexApiException, RequestException) as error:
-        if stop.is_set():
-            return
-
-        # Library exception messages can contain credentials or response bodies.
-        _logger.error(
-            "Plex poll failed (%s); retrying in %g seconds.",
-            type(error).__name__,
-            settings.sync_interval_sec,
-        )
-        return  # Try again on the next iteration.
-
-    # Log the watchlist entries.
-    for item in lists.watchlist.values():
-        _logger.info(
-            "%s: %s (%s)",
-            item.type,
-            item.title,
-            item.year or "unknown year",
-        )
-
-    # Re-read current membership before releasing additions whose grace period has elapsed.
-    prepared = changes.prepare(
-        lists.watchlist, lists.delete_list, settings.watchlist_grace_sec, time()
-    )
-    if stop.is_set():
+        if not stop.is_set():
+            _logger.error(
+                "Plex poll failed (%s); state retained; retry in %g seconds.",
+                type(error).__name__,
+                settings.sync_interval_sec,
+            )
         return
 
-    # Scryer is a lookup target: inspect it on startup/events, never on its own polling loop.
+    sync_watchlist(settings, stop, changes, watchlist)
+
+
+def sync_watchlist(
+    settings: Settings,
+    stop: Event,
+    changes: ChangeDetector,
+    watchlist: dict[str, PlexItem],
+) -> None:
+    """Reconcile a complete membership snapshot and save only successful event handling."""
+    prepared = changes.prepare(watchlist, settings.watchlist_grace_sec, time())
+    if stop.is_set():
+        return
     if changes.startup or prepared.events:
+        _logger.info(
+            "Plex watchlist: %d items, %d pending, %d events.",
+            len(watchlist),
+            len(prepared.state.pending),
+            len(prepared.events),
+        )
+        for item in watchlist.values():
+            _logger.debug(
+                "Watchlist: %s id=%s provider_ids=%s.", item.title, item.id, item.external_ids
+            )
         try:
-            targets = {event.item.id: event.item for event in prepared.events}
-            targets.update(lists.watchlist)
-            targets.update(lists.delete_list)
-            _inspect_scryer(settings, stop, list(targets.values()))
+            with ScryerClient(
+                f"{str(settings.scryer_url).rstrip('/')}/graphql", settings.scryer_api_key
+            ) as client:
+                if changes.startup:
+                    _logger.info("Connected to Scryer %s.", get_version(client))
+                for event in prepared.events:
+                    if stop.is_set():
+                        return
+                    _logger.info(
+                        "Handling %s: %s id=%s.", event.kind, event.item.title, event.item.id
+                    )
+                    _handle_event(client, event, stop)
         except ScryerError as error:
-            _logger.error("%s Previous Plex state retained for retry.", error)
+            _logger.error(
+                "%s Previous Plex state retained; retry in %g seconds.",
+                error,
+                settings.sync_interval_sec,
+            )
             return
     if stop.is_set():
         return
-
-    # Logging is the event handler at this checkpoint. Failed reads do not consume events.
-    for event in prepared.events:
-        _logger.info("Plex event %s: %s (id=%s)", event.kind, event.item.title, event.item.id)
     changes.commit(prepared.state)
-
-
-# =============================================================================
-# MARK: Scryer inspection
-# =============================================================================
-
-
-def _inspect_scryer(settings: Settings, stop: Event, plex_items: list[PlexItem]) -> None:
-    # Complete the reads before logging a partial catalog as if it were authoritative.
-    with ScryerClient(
-        f"{str(settings.scryer_url).rstrip('/')}/graphql", settings.scryer_api_key
-    ) as client:
-        version = get_version(client)
-        titles = list_titles(client, stop=stop)
-        if stop.is_set():
-            raise InterruptedError("Scryer diagnostic read cancelled")
-        requests = list_media_requests(client)
-
-    _logger.info(
-        "Scryer %s: %d managed titles, %d request records visible to this API key.",
-        version,
-        len(titles),
-        len(requests),
+    _logger.debug(
+        "Poll complete: %d watchlist items, %d pending, %d events handled.",
+        len(watchlist),
+        len(prepared.state.pending),
+        len(prepared.events),
     )
 
-    for title in titles:
-        _logger.info(
-            "Scryer title: %s id=%s library=%s facet=%s ids=%s monitored=%s policy=%s files=%d",
-            title.name,
-            title.id,
-            title.library_id,
-            title.facet,
-            {entry.source: entry.value for entry in title.external_ids},
-            title.monitored,
-            title.monitor_type,
-            len(title.media_files),
-        )
 
-        for collection in title.collections:
-            _logger.info(
-                "Scryer collection: title=%s id=%s scope=%s/%s "
-                "monitored=%s episodes=%d available=%d",
-                title.id,
-                collection.id,
-                collection.collection_type,
-                collection.collection_index,
-                collection.monitored,
-                len(collection.episodes),
-                sum(
-                    episode.media_availability.state == "AVAILABLE"
-                    for episode in collection.episodes
-                ),
-            )
+# =============================================================================
+# MARK: Watchlist decisions
+# =============================================================================
 
-            for episode in collection.episodes:
-                _logger.debug(
-                    "Scryer episode: id=%s season=%s episode=%s monitored=%s availability=%s",
-                    episode.id,
-                    episode.season_number,
-                    episode.episode_number,
-                    episode.monitored,
-                    episode.media_availability.state,
-                )
 
-        for media_file in title.media_files:
-            _logger.debug(
-                "Scryer file: id=%s title=%s episode=%s scan=%s",
-                media_file.id,
-                title.id,
-                media_file.episode_id,
-                media_file.scan_status,
-            )
+def _handle_event(client: ScryerClient, event: PlexEvent, stop: Event) -> None:
+    item = event.item
+    titles = matching_items(item, list_titles(client, stop=stop))
+    if len(titles) > 1:
+        raise ScryerError("Multiple Scryer titles match; resolve the duplicate identities first.")
+    if titles:
+        if event.kind == "watchlist_removed":
+            unmonitor_title(client, titles[0])
+            return
+        monitor_title(client, titles[0], stop)
+        return
 
-    for request in requests:
-        _logger.info(
-            "Scryer request: %s id=%s library=%s facet=%s ids=%s "
-            "status=%s created_title=%s policy=%s",
-            request.title,
-            request.id,
-            request.library_id,
-            request.facet,
-            {entry.source: entry.value for entry in request.external_ids},
-            request.status,
-            request.created_title_id,
-            request.requested_monitor_type,
-        )
+    pending = [
+        request
+        for request in matching_items(item, list_media_requests(client))
+        if request.status == "PENDING"
+    ]
+    if event.kind == "watchlist_removed":
+        if pending:
+            raise ScryerError("Removal has a pending Scryer request; resolve it before retrying.")
+        _logger.info("Already absent from Scryer: %s; nothing to unmonitor.", item.title)
+        return
+    if len(pending) > 1:
+        raise ScryerError("Multiple pending requests match; resolve the duplicate requests first.")
+    if pending:
+        title_id = approve_request(client, pending[0])
+    else:
+        title_id = add_title(client, item)
 
-    # Show exact-ID matches without treating names or download progress as a policy decision.
-    for item in plex_items:
-        ids = item.show_external_ids if item.type == "episode" else item.external_ids
-
-        # TMDB movie and series IDs occupy separate namespaces.
-        facets = {"movie"} if item.type == "movie" else {"tv", "anime"}
-        title_ids = [
-            title.id
-            for title in titles
-            if title.facet in facets
-            and any(ids.get(entry.source) == entry.value for entry in title.external_ids)
-        ]
-        request_ids = [
-            request.id
-            for request in requests
-            if request.facet in facets
-            and any(ids.get(entry.source) == entry.value for entry in request.external_ids)
-        ]
-
-        _logger.info(
-            "Plex identity: %s id=%s guid=%s ids=%s season=%s episode=%s titles=%s requests=%s",
-            item.title,
-            item.id,
-            item.show_guid or item.guid,
-            ids,
-            item.season,
-            item.episode,
-            title_ids,
-            request_ids,
-        )
-
-        if not ids:
-            _logger.warning("Plex item %s has no external IDs; matching is unresolved.", item.id)
+    # Confirm the created catalog identity before applying its monitoring policy.
+    title = next((title for title in list_titles(client, stop=stop) if title.id == title_id), None)
+    if title is None:
+        raise ScryerError("Approved title is not visible yet; retaining the event for retry.")
+    monitor_title(client, title, stop)
