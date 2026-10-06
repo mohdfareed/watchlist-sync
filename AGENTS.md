@@ -17,10 +17,11 @@
 ## Behavior
 
 - Watchlist addition → adopt an exact-ID existing title or request a new title
-  in Scryer. Monitor movies and current/future regular series episodes.
-- Preserve specials settings and existing special selections. Existing
-  `ADVANCED` series retain their policy and custom selections; only toggle
-  title monitoring for these titles.
+  in Scryer. New shows select only season 1 using `ADVANCED`; movies use
+  `MONITORED`. Supply the selection atomically on creation, before acquisition.
+- Preserve policy, season/episode selections and specials settings for ALL
+  existing titles, including adoption, retry and removal/re-addition. Only
+  toggle title monitoring; never expand existing scopes.
 - Watchlist removal → unmonitor; do not explicitly cancel downloads or delete
   files.
 - Process existing contents on every startup, then poll for list changes.
@@ -28,8 +29,7 @@
 - Watchlist union membership is authoritative for adopted titles' monitored
   flags. Reconcile them on each successful poll; retain ownership after removal
   so delayed/uncertain writes converge automatically to current membership.
-- Enable regular series scopes on an addition, not during routine title-flag
-  correction. Preserve manual episode choices after the addition completes.
+- Title-flag correction and additions preserve manual episode choices.
 - Watchlist additions have a grace period, tracked by stable item ID. Removal
   during the grace period cancels the pending addition. Use
   `WATCHLIST_GRACE_SEC=60` by default, including startup contents. Preserve

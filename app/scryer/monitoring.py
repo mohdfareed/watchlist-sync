@@ -30,59 +30,10 @@ def set_title_monitoring(client: ScryerClient, title: Title, monitored: bool) ->
 
 
 def monitor_title(client: ScryerClient, title: Title, stop: Event) -> None:
-    """Monitor regular series scopes while preserving specials and advanced selections."""
+    """Enable a title without changing its existing policy or season/episode selections."""
     if stop.is_set():
         raise InterruptedError("Scryer monitoring cancelled")
-
-    # Advanced series retain their policy and all saved collection/episode selections.
-    advanced = title.facet != "movie" and title.monitor_type == "ADVANCED"
-
-    # Wait for ordinary series scopes before accepting an addition as complete.
-    if not advanced and title.facet != "movie" and title.metadata_fetched_at is None:
-        raise ScryerError(
-            "Scryer show metadata is not ready; retaining the event for retry. "
-            "If this persists, check metadata hydration in Scryer."
-        )
-    policy = "MONITORED" if title.facet == "movie" else "ALL_EPISODES"
-    if not advanced and title.monitor_type != policy:
-        result = client.query(
-            _POLICY_QUERY,
-            {"input": {"titleId": title.id, "options": {"monitorType": policy}}},
-            _PolicyResponse,
-        ).result
-        if result.id != title.id or result.monitor_type != policy:
-            raise ScryerError("Scryer did not confirm the requested monitoring policy.")
-        _logger.info("Monitoring policy: %s -> %s.", title.name, policy)
     set_title_monitoring(client, title, True)
-
-    if advanced:
-        _logger.info("Monitored: %s title=%s; advanced selections retained.", title.name, title.id)
-        return
-
-    # Policy changes govern future hydration without resetting existing episode flags.
-    # Preserve specials settings and selections by updating only regular seasons.
-    for collection in title.collections:
-        if collection.collection_type != "SEASON" or not _regular(collection.collection_index):
-            continue
-        if any(not _regular(episode.season_number) for episode in collection.episodes):
-            raise ScryerError(
-                "A regular season contains unknown/special episode scopes; review it."
-            )
-        if collection.monitored and all(episode.monitored for episode in collection.episodes):
-            continue
-        if stop.is_set():
-            raise InterruptedError("Scryer monitoring cancelled")
-
-        # Scryer enables the collection's episodes together, including individual exceptions.
-        result = client.query(
-            _COLLECTION_QUERY,
-            {"input": {"collectionId": collection.id, "monitored": True}},
-            _MonitoringResponse,
-        ).result
-        if result.id != collection.id or not result.monitored:
-            raise ScryerError("Scryer did not confirm collection monitoring.")
-
-    _logger.info("Monitored: %s title=%s; specials retained.", title.name, title.id)
 
 
 # =============================================================================
@@ -99,29 +50,10 @@ class _MonitoringResponse(ScryerModel):
     result: _Monitored
 
 
-class _Policy(ScryerModel):
-    id: str
-    monitor_type: str | None
-
-
-class _PolicyResponse(ScryerModel):
-    result: _Policy
-
-
-def _regular(number: str | None) -> bool:
-    return number is not None and number.isdecimal() and int(number) > 0
-
-
 # =============================================================================
 # MARK: GraphQL operations
 # =============================================================================
 
 _MONITOR_QUERY = """mutation MonitorTitle($input: SetTitleMonitoredInput!) {
   result: setTitleMonitored(input: $input) { id monitored }
-}"""
-_POLICY_QUERY = """mutation MonitorPolicy($input: UpdateTitleInput!) {
-  result: updateTitle(input: $input) { id monitorType }
-}"""
-_COLLECTION_QUERY = """mutation MonitorCollection($input: SetCollectionMonitoredInput!) {
-  result: setCollectionMonitored(input: $input) { id monitored }
 }"""

@@ -9,13 +9,13 @@ Only Trakt's native movie/show watchlist is included. Custom lists, Backlog,
 and history are excluded. A title stays monitored while present in either
 source.
 
-Movies and regular series episodes are monitored, including future episodes.
-Specials settings and selections are preserved. Existing `ADVANCED` series
-retain their custom policy and selections; only title monitoring is toggled.
+New shows monitor season 1 only; new movies are monitored. Every existing
+title retains its policy, season and episode selections, and specials settings;
+only title monitoring is toggled.
 
 Watchlist membership controls the title-level monitored flag for adopted
 identities. Manual changes to that flag are corrected on later polls; completed
-episode/season selections are preserved until another watchlist addition.
+episode/season selections are preserved across removal and re-addition.
 
 File deletion is manual through Plex. This tool never deletes media.
 

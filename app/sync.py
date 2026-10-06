@@ -90,7 +90,7 @@ def sync_watchlists(
         return
 
     # Reject conflicting aliases before accepting membership or changing any title.
-    # Only a new union addition re-enables regular scopes; routine polls repair title flags.
+    # Additions and routine polls change only title flags, preserving saved selections.
     for selection in selections:
         key = _managed_key(state, selection.item)
         if key is not None and not any(

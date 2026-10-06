@@ -58,7 +58,9 @@ def add_title(client: ScryerClient, item: WatchlistItem) -> str:
     if len(choices) != 1:
         raise ScryerError("Set one default Scryer library for the matched media facet.")
     library = choices[0]
-    policy = "MONITORED" if facet == "movie" else "ALL_EPISODES"
+    options: dict[str, object] = {"monitorType": "MONITORED"}
+    if facet != "movie":
+        options = {"monitorType": "ADVANCED", "monitorSelection": {"seasonNumbers": [1]}}
     values: dict[str, object] = {
         "libraryId": library.id,
         "facet": "SERIES" if facet == "tv" else facet.upper(),
@@ -67,7 +69,7 @@ def add_title(client: ScryerClient, item: WatchlistItem) -> str:
         "tags": [],
         "year": entry.year,
         "externalIds": [identity.model_dump() for identity in entry.external_ids],
-        "options": {"monitorType": policy},
+        "options": options,
     }
     ids = WatchlistItem(
         id=item.id,
