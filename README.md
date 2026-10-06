@@ -96,6 +96,18 @@ docker compose -f docker/compose.yaml stop
 To build from Git, set `WATCHLIST_SYNC_BUILD_CONTEXT` to the repository's HTTPS
 Git URL with `#<commit-or-tag>` appended.
 
+## Release
+
+From a clean working tree, publish the current commit as `latest`:
+
+```sh
+./scripts/release.sh
+```
+
+This moves and pushes only the `latest` tag, using your configured Git signing
+and authentication. Deployments using `#latest` build that release on their
+next deployment.
+
 ## Development
 
 Requires Python 3.14+ and uv. Run from the repository root:
