@@ -80,7 +80,7 @@ def sync_watchlists(
     """Stage successful reads together before applying union additions and removals."""
     now = time()
     previous = _selections(store.state, now)
-    state = store.observe(snapshots, settings.watchlist_grace_sec, now)
+    state = store.observe(snapshots, now)
     fresh_sources = {snapshot.source for snapshot in snapshots}
     selections = _selections(state, now, fresh_sources)
     required_sources = {"plex", "trakt"} if settings.trakt_client_id is not None else {"plex"}

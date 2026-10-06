@@ -40,8 +40,6 @@ Optional:
   Set a writable directory for local runs.
 - `LOG_LEVEL`: console verbosity; default `INFO`.
 - `SYNC_INTERVAL_SEC`: seconds between polling attempts; default `30`.
-- `WATCHLIST_GRACE_SEC`: addition delay in seconds; default `60`, including
-  startup contents. Removing an item during the delay cancels its addition.
 
 ## Run
 

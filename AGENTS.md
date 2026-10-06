@@ -30,10 +30,6 @@
   flags. Reconcile them on each successful poll; retain ownership after removal
   so delayed/uncertain writes converge automatically to current membership.
 - Title-flag correction and additions preserve manual episode choices.
-- Watchlist additions have a grace period, tracked by stable item ID. Removal
-  during the grace period cancels the pending addition. Use
-  `WATCHLIST_GRACE_SEC=60` by default, including startup contents. Preserve
-  pending deadlines across restarts and check membership before releasing them.
 - Persist complete snapshots, grace deadlines, adopted identities and
   unfinished changes in `/config/state.json`. Save atomically before writes
   and after confirmed outcomes, so uncertain writes remain recoverable.

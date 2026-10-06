@@ -68,11 +68,11 @@ class StateStore:
                 "Cannot load state.json; restore valid state before restarting."
             ) from None
 
-    def observe(self, snapshots: list[WatchlistSnapshot], grace: float, now: float) -> SyncState:
+    def observe(self, snapshots: list[WatchlistSnapshot], now: float) -> SyncState:
         """Stage complete membership while retaining unfinished work and grace deadlines."""
         state = self.state.model_copy(deep=True)
         for snapshot in snapshots:
-            self._observe(state, snapshot, grace, now)
+            self._observe(state, snapshot, now)
         return state
 
     def save(self, state: SyncState, *, observed_sources: set[str] | None = None) -> None:
@@ -98,7 +98,7 @@ class StateStore:
     # =========================================================================
 
     def _observe(
-        self, state: SyncState, snapshot: WatchlistSnapshot, grace: float, now: float
+        self, state: SyncState, snapshot: WatchlistSnapshot, now: float
     ) -> None:
         previous = state.watchlists.get(snapshot.source, {})
 
@@ -125,7 +125,7 @@ class StateStore:
                 del deadlines[item_id]
         for item_id in snapshot.items:
             if snapshot.source not in self._observed_sources or item_id not in previous:
-                deadlines.setdefault(item_id, now + grace)
+                deadlines.setdefault(item_id, now)
         state.watchlists[snapshot.source] = snapshot.items
 
 

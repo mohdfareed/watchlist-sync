@@ -52,11 +52,7 @@ class Settings(BaseSettings):
 
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     config_dir: Path = Path("/config")
-
-    sync_interval_sec: float = Field(default=30, ge=1, allow_inf_nan=False)
-    watchlist_grace_sec: float = Field(
-        default=60, ge=0, allow_inf_nan=False, validation_alias="WATCHLIST_GRACE_SEC"
-    )
+    sync_interval_sec: float = Field(default=60, ge=1, allow_inf_nan=False)
 
     scryer_url: AnyHttpUrl
     scryer_api_key: SecretStr = Field(min_length=1)
