@@ -97,9 +97,7 @@ class StateStore:
     # MARK: Snapshot staging
     # =========================================================================
 
-    def _observe(
-        self, state: SyncState, snapshot: WatchlistSnapshot, now: float
-    ) -> None:
+    def _observe(self, state: SyncState, snapshot: WatchlistSnapshot, now: float) -> None:
         previous = state.watchlists.get(snapshot.source, {})
 
         # A reused source ID must not silently replace the old title with another identity.
