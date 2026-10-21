@@ -14,6 +14,7 @@ echo "Building release..."
 echo "Commit release..."
 git add .
 git commit --message "chore: release latest"
+git push origin HEAD
 
 echo "Publishing release..."
 git tag --force --message "Release latest" latest HEAD
