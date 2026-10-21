@@ -8,5 +8,9 @@ if [ -n "$(git status --porcelain)" ]; then
     exit 1
 fi
 
+echo "Building release..."
+./scripts/build.sh
+
+echo "Publishing release..."
 git tag --force --message "Release latest" latest HEAD
 git push --no-follow-tags origin +refs/tags/latest:refs/tags/latest
