@@ -190,14 +190,17 @@ def _apply_addition(
     managed.item = item
     if target is not None:
         managed.title_id = target.id
+    else:
+        # A deleted title needs its regular scopes enabled when requested again.
+        managed.scope_pending = True
     state.managed[key] = managed
 
     # Claim the identity before the first write. A timeout may have succeeded remotely;
     # retaining this target lets a later removal undo that uncertain addition safely.
     store.save(state)
     if target is None:
-        if managed.title_id is not None:
-            raise ScryerError("Adopted title is not visible; retaining ownership and retrying.")
+        # Reuse the exact-ID request flow even when a previously adopted title vanished.
+        # Keep its old ID until Scryer confirms a replacement so uncertain writes recover.
         pending = [
             request
             for request in matching_items(item, list_media_requests(client))
@@ -214,6 +217,7 @@ def _apply_addition(
             managed.search_pending = result.search_pending
         else:
             managed.title_id = add_title(client, item)
+            managed.search_pending = False
         store.save(state)
         titles[:] = list_titles(client, stop=stop)
         target = find_title(item, managed.title_id, titles)
