@@ -57,6 +57,10 @@ def get_version(client: ScryerClient) -> str:
 
 def matches_identity(item: WatchlistItem, external_ids: list[ExternalId]) -> bool:
     """Require shared provider IDs to agree, rejecting conflicting identities."""
+    # Search/catalog results can contain unrelated records with multiple IDs.
+    # Only a shared canonical ID makes their conflicts relevant to this item.
+    if not any(item.external_ids.get(entry.source) == entry.value for entry in external_ids):
+        return False
     ids: dict[str, str] = {}
     for entry in external_ids:
         if entry.source in ids and ids[entry.source] != entry.value:
